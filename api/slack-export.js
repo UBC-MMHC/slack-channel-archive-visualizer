@@ -3,6 +3,81 @@ import { WebClient } from '@slack/web-api';
 // Initialize Slack client
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
+// Maximum file size to embed (5MB)
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+
+// File types to embed as base64
+const EMBEDDABLE_MIMETYPES = [
+  'image/jpeg',
+  'image/png', 
+  'image/gif',
+  'image/webp',
+  'image/svg+xml'
+];
+
+/**
+ * Download a file from Slack and convert to base64
+ * @param {string} url - The url_private of the file
+ * @param {string} token - Slack bot token for authentication
+ * @returns {Promise<string|null>} Base64 encoded file data or null if failed
+ */
+async function downloadFileAsBase64(url, token) {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    if (!response.ok) {
+      console.warn(`Failed to download file: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    return buffer.toString('base64');
+  } catch (error) {
+    console.warn(`Error downloading file from ${url}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Process files in a message and embed downloadable ones
+ * @param {Array} files - Array of file objects from a message
+ * @param {string} token - Slack bot token
+ * @returns {Promise<Array>} Files array with embedded data where possible
+ */
+async function processMessageFiles(files, token) {
+  if (!files || files.length === 0) return files;
+  
+  const processedFiles = await Promise.all(files.map(async (file) => {
+    // Check if file should be embedded
+    const shouldEmbed = 
+      file.url_private &&
+      file.size <= MAX_FILE_SIZE_BYTES &&
+      EMBEDDABLE_MIMETYPES.includes(file.mimetype);
+    
+    if (shouldEmbed) {
+      console.log(`Downloading file: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+      const base64Data = await downloadFileAsBase64(file.url_private, token);
+      
+      if (base64Data) {
+        return {
+          ...file,
+          file_data: base64Data,
+          file_data_mimetype: file.mimetype
+        };
+      }
+    }
+    
+    return file;
+  }));
+  
+  return processedFiles;
+}
+
 export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== 'POST') {
@@ -85,14 +160,22 @@ export default async function handler(req, res) {
         const messages = historyResponse.messages || [];
         console.log(`Found ${messages.length} messages in ${channel.name}`);
 
-        // Transform messages to match the expected format
-        const transformedMessages = messages.map(message => ({
-          ...message,
-          user_profile: usersById[message.user] ? {
-            display_name: usersById[message.user].profile?.display_name || usersById[message.user].real_name || usersById[message.user].name,
-            real_name: usersById[message.user].real_name || usersById[message.user].name,
-            image_72: usersById[message.user].profile?.image_72
-          } : null
+        // Transform messages to match the expected format and download files
+        const transformedMessages = await Promise.all(messages.map(async (message) => {
+          // Process files if present
+          const processedFiles = message.files 
+            ? await processMessageFiles(message.files, process.env.SLACK_BOT_TOKEN)
+            : undefined;
+          
+          return {
+            ...message,
+            files: processedFiles,
+            user_profile: usersById[message.user] ? {
+              display_name: usersById[message.user].profile?.display_name || usersById[message.user].real_name || usersById[message.user].name,
+              real_name: usersById[message.user].real_name || usersById[message.user].name,
+              image_72: usersById[message.user].profile?.image_72
+            } : null
+          };
         }));
 
         channelMessages[channel.name] = transformedMessages;

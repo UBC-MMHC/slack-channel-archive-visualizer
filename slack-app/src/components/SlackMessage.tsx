@@ -163,31 +163,50 @@ const SlackMessage: React.FC<SlackMessageProps> = ({
                   <div key={file.id || fileIndex} className="message-file">
                     {isImage ? (
                       <div className="message-image">
-                        <img 
-                          src={file.url_private || file.permalink} 
-                          alt={file.title || file.name}
-                          className="file-image"
-                          onError={(e) => {
-                            // Fallback to showing file info if image fails to load
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              parent.innerHTML = `
-                                <div class="file-info media-error">
-                                  <div class="file-icon">📷</div>
-                                  <div class="file-details">
-                                    <div class="file-name">${file.title || file.name}</div>
-                                    <div class="file-meta">${file.pretty_type || file.filetype} • ${(file.size / 1024).toFixed(1)} KB</div>
-                                    <div class="media-error-message">Sorry, this media didn't come through properly upon exporting—likely since it's older than 90 days</div>
-                                  </div>
-                                </div>
-                              `;
-                            }
-                          }}
-                        />
-                        {file.title && file.title !== file.name && (
-                          <div className="image-caption">{file.title}</div>
+                        {/* Use embedded file_data if available, otherwise fall back to URL */}
+                        {file.file_data ? (
+                          <>
+                            <img 
+                              src={`data:${file.file_data_mimetype || file.mimetype};base64,${file.file_data}`}
+                              alt={file.title || file.name}
+                              className="file-image"
+                            />
+                            {file.title && file.title !== file.name && (
+                              <div className="image-caption">{file.title}</div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <img 
+                              src={file.url_private || file.permalink} 
+                              alt={file.title || file.name}
+                              className="file-image"
+                              onError={(e) => {
+                                // Fallback to showing file info if image fails to load
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  parent.innerHTML = `
+                                    <div class="file-info media-error">
+                                      <div class="file-icon">🖼️</div>
+                                      <div class="file-details">
+                                        <div class="file-name">${file.title || file.name}</div>
+                                        <div class="file-meta">${file.pretty_type || file.filetype} • ${(file.size / 1024).toFixed(1)} KB</div>
+                                        <div class="media-error-message">
+                                          <span class="error-icon">⚠️</span>
+                                          Image unavailable — Slack file URLs expire over time. Re-export your workspace to capture current images.
+                                        </div>
+                                      </div>
+                                    </div>
+                                  `;
+                                }
+                              }}
+                            />
+                            {file.title && file.title !== file.name && (
+                              <div className="image-caption">{file.title}</div>
+                            )}
+                          </>
                         )}
                       </div>
                     ) : (
@@ -200,7 +219,20 @@ const SlackMessage: React.FC<SlackMessageProps> = ({
                             {file.size && ` • ${(file.size / 1024).toFixed(1)} KB`}
                           </div>
                         </div>
-                        {file.url_private ? (
+                        {file.file_data ? (
+                          <a 
+                            href={`data:${file.file_data_mimetype || file.mimetype};base64,${file.file_data}`}
+                            download={file.name}
+                            className="file-download"
+                            style={{ 
+                              pointerEvents: 'auto', 
+                              position: 'relative', 
+                              zIndex: 10
+                            }}
+                          >
+                            Download
+                          </a>
+                        ) : file.url_private ? (
                           <a 
                             href={file.url_private} 
                             target="_blank" 
@@ -216,7 +248,8 @@ const SlackMessage: React.FC<SlackMessageProps> = ({
                           </a>
                         ) : (
                           <div className="media-error-message">
-                            Sorry, this media didn't come through properly upon exporting—likely since it's older than 90 days
+                            <span className="error-icon">⚠️</span>
+                            File unavailable — Slack URLs expire over time
                           </div>
                         )}
                       </div>

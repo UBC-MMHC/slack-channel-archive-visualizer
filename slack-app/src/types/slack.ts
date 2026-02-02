@@ -153,6 +153,9 @@ export interface SlackMessage {
     url_private_download: string;
     permalink: string;
     permalink_public: string;
+    // Embedded file data (base64 encoded) - added during export to preserve files
+    file_data?: string;
+    file_data_mimetype?: string;
   }>;
   // For system messages
   old_name?: string;
